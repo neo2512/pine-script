@@ -1,0 +1,293 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © ssinha122
+
+
+//@version=5
+indicator("Pivot Points Standard", "Pivots", overlay=true, max_lines_count=500, max_labels_count=500)
+
+AUTO = "Auto"
+FOURHOUR = "4H"
+DAILY = "Daily"
+WEEKLY = "Weekly"
+MONTHLY = "Monthly"
+
+WOODIE = "Woodie"
+TRADITIONAL = "Traditional"
+CAMARILLA = "Camarilla"
+
+kind = input.string(title="Type", defval="Traditional", options=[TRADITIONAL, CAMARILLA])
+pivot_time_frame = input.string(title="Pivots Timeframe", defval=DAILY, options=[DAILY, WEEKLY, MONTHLY, FOURHOUR])
+look_back = input.int(title="Number of Pivots Back", defval=15, minval=1, maxval=5000)
+is_daily_based = input.bool(title="Use Daily-based Values", defval=true, tooltip="When this option is unchecked, Pivot Points will use intraday data while calculating on intraday charts. If Extended Hours are displayed on the chart, they will be taken into account during the pivot level calculation. If intraday OHLC values are different from daily-based values (normal for stocks), the pivot levels will also differ.")
+show_labels = input.bool(title="Show Labels", defval=true, inline="labels")
+position_labels = input.string("Left", "", options=["Left", "Right"], inline="labels")
+
+var DEF_COLOR = #FB8C00
+var arr_time = array.new_int()
+var p = array.new_float()
+p_show = input.bool(true, "P‏  ‏  ‏  ‏  ‏  ‏  ‏  ‏", inline="P")
+p_color = input.color(DEF_COLOR, "", inline="P")
+var r100 = array.new_float()
+var s100 = array.new_float()
+s100_show = input.bool(true, "S100", inline="S100")
+s100_color = input.color(DEF_COLOR, "", inline="S100")
+r100_show = input.bool(true, "R100", inline="R100")
+r100_color = input.color(DEF_COLOR, "", inline="R100")
+var r75 = array.new_float()
+var s75 = array.new_float()
+s75_show = input.bool(true, "S75", inline="S75")
+s75_color = input.color(DEF_COLOR, "", inline="S75")
+r75_show = input.bool(true, "R75", inline="R75")
+r75_color = input.color(DEF_COLOR, "", inline="R75")
+var r50 = array.new_float()
+var s50 = array.new_float()
+s50_show = input.bool(true, "S50", inline="S50")
+s50_color = input.color(DEF_COLOR, "", inline="S50")
+r50_show = input.bool(true, "R50", inline="R50")
+r50_color = input.color(DEF_COLOR, "", inline="R50")
+var r25 = array.new_float()
+var s25 = array.new_float()
+s25_show = input.bool(true, "S25", inline="S25")
+s25_color = input.color(DEF_COLOR, "", inline="S25")
+r25_show = input.bool(true, "R25", inline="R25")
+r25_color = input.color(DEF_COLOR, "", inline="R25")
+var tp = array.new_float()
+var bp = array.new_float()
+tpbp_show = input.bool(true, "TP/BP", inline="TP/BP")
+tpbp_color = input.color(DEF_COLOR, "", inline="TP/BP")
+var prevhi = array.new_float()
+prevhi_show = input.bool(true, "prevHI", inline="prevHI")
+prevhi_color = input.color(DEF_COLOR, "", inline="prevHI")
+var prevcl = array.new_float()
+prevcl_show = input.bool(true, "prevCL", inline="prevCL")
+prevcl_color = input.color(DEF_COLOR, "", inline="prevCL")
+var prevlo = array.new_float()
+prevlo_show = input.bool(true, "prevLO", inline="prevLO")
+prevlo_color = input.color(DEF_COLOR, "", inline="prevLO")
+pivotX_open = float(na)
+pivotX_open := nz(pivotX_open[1], open)
+pivotX_high = float(na)
+pivotX_high := nz(pivotX_high[1], high)
+pivotX_low = float(na)
+pivotX_low := nz(pivotX_low[1], low)
+pivotX_prev_open = float(na)
+pivotX_prev_open := nz(pivotX_prev_open[1])
+pivotX_prev_high = float(na)
+pivotX_prev_high := nz(pivotX_prev_high[1])
+pivotX_prev_low = float(na)
+pivotX_prev_low := nz(pivotX_prev_low[1])
+pivotX_prev_close = float(na)
+pivotX_prev_close := nz(pivotX_prev_close[1])
+
+get_pivot_resolution() =>
+    resolution = "M"
+    if pivot_time_frame == AUTO
+        if timeframe.isintraday
+            resolution := timeframe.multiplier <= 15 ? "D" : "W"
+        else if timeframe.isweekly or timeframe.ismonthly
+            resolution := "12M"
+    else if pivot_time_frame == DAILY
+        resolution := "D"
+	else if pivot_time_frame == WEEKLY
+        resolution := "W"
+	else if pivot_time_frame == MONTHLY
+        resolution := "M"
+	else if pivot_time_frame == FOURHOUR
+        resolution := "240"
+    resolution
+
+var lines = array.new_line()
+var labels = array.new_label()
+
+draw_line(i, pivot, col) =>
+    if array.size(arr_time) > 1
+        array.push(lines, line.new(array.get(arr_time, i), array.get(pivot, i), array.get(arr_time, i + 1), array.get(pivot, i), color=col, xloc=xloc.bar_time))
+
+draw_label(i, y, txt, txt_color) =>
+    if show_labels
+        offset = '‏  ‏  ‏  ‏  ‏'
+        labels_align_str_left= position_labels == "Left" ? txt + offset : offset + txt
+        x = position_labels == "Left" ? array.get(arr_time, i) : array.get(arr_time, i + 1)
+        array.push(labels, label.new(x = x, y=y, text=labels_align_str_left, textcolor=txt_color, style=label.style_label_center, color=#00000000, xloc=xloc.bar_time))
+
+traditional() =>
+    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
+    array.push(p, pivotX_Median)
+    array.push(r100, pivotX_prev_high + (pivotX_prev_high - pivotX_prev_low))
+    array.push(s100, pivotX_prev_low - (pivotX_prev_high- pivotX_prev_low))
+    array.push(r75, pivotX_prev_high + ((pivotX_prev_high - pivotX_prev_low) * 0.75))
+    array.push(s75, pivotX_prev_low - ((pivotX_prev_high - pivotX_prev_low) * 0.75))
+    array.push(r50, pivotX_prev_high + ((pivotX_prev_high - pivotX_prev_low) * 0.50))
+    array.push(s50, pivotX_prev_low - ((pivotX_prev_high - pivotX_prev_low) * 0.50))
+    array.push(r25, pivotX_prev_high + ((pivotX_prev_high - pivotX_prev_low) * 0.25))
+    array.push(s25, pivotX_prev_low - ((pivotX_prev_high - pivotX_prev_low) * 0.25))
+    array.push(tp, pivotX_Median + (pivotX_Median - ((pivotX_prev_high + pivotX_prev_low ) / 2)))
+	array.push(bp,(pivotX_prev_high + pivotX_prev_low ) / 2)
+	array.push(prevhi, pivotX_prev_high)
+	array.push(prevcl, pivotX_prev_close)
+	array.push(prevlo, pivotX_prev_low)
+
+camarilla() =>
+    pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
+    pivot_range = pivotX_prev_high - pivotX_prev_low
+    array.push(p, pivotX_Median)
+    array.push(r100, pivotX_prev_close + pivot_range * 1.1 / 12.0)
+    array.push(s100, pivotX_prev_close - pivot_range * 1.1 / 12.0)
+    array.push(r75, pivotX_prev_close + pivot_range * 1.1 / 6.0)
+    array.push(s75, pivotX_prev_close - pivot_range * 1.1 / 6.0)
+    array.push(r50, pivotX_prev_close + pivot_range * 1.1 / 4.0)
+    array.push(s50, pivotX_prev_close - pivot_range * 1.1 / 4.0)
+    array.push(r25, pivotX_prev_close + pivot_range * 1.1 / 2.0)
+    array.push(s25, pivotX_prev_close - pivot_range * 1.1 / 2.0)
+	
+
+resolution = get_pivot_resolution()
+
+[sec_open, sec_high, sec_low, sec_close] = request.security(syminfo.tickerid, resolution, [open, high, low, close], lookahead = barmerge.lookahead_on)
+sec_open_gaps_on = request.security(syminfo.tickerid, resolution, open, gaps = barmerge.gaps_on, lookahead = barmerge.lookahead_on)
+
+custom_years_divisor = switch pivot_time_frame
+	=> -1
+
+is_change_years = false	
+if custom_years_divisor > 0 and ta.change(time(resolution))
+	is_change_years := year % custom_years_divisor == 0
+
+
+
+var is_change = false
+var uses_current_bar = timeframe.isintraday and kind == WOODIE
+var change_time = int(na)
+is_time_change = (ta.change(time(resolution)) and custom_years_divisor == -1) or is_change_years
+if is_time_change
+    change_time := time
+
+
+if (not uses_current_bar and is_time_change) or (uses_current_bar and not na(sec_open_gaps_on))
+    if is_daily_based and custom_years_divisor == -1
+        pivotX_prev_open := sec_open[1]
+        pivotX_prev_high := sec_high[1]
+        pivotX_prev_low := sec_low[1]
+        pivotX_prev_close := sec_close[1]
+        pivotX_open := sec_open
+        pivotX_high := sec_high
+        pivotX_low := sec_low
+    else
+        pivotX_prev_high := pivotX_high
+        pivotX_prev_low := pivotX_low
+        pivotX_prev_open := pivotX_open
+        pivotX_open := open
+        pivotX_high := high
+        pivotX_low := low
+        pivotX_prev_close := close[1]
+
+    if barstate.islast and not is_change and  array.size(arr_time) > 0
+        array.set(arr_time, array.size(arr_time) - 1, change_time)
+    else
+        array.push(arr_time, change_time)
+
+    if kind == TRADITIONAL
+        traditional()
+	else if kind == CAMARILLA
+        camarilla()
+
+    if array.size(arr_time) > look_back
+        if array.size(arr_time) > 0
+            array.shift(arr_time)
+        if array.size(p) > 0 and p_show
+            array.shift(p)
+        if array.size(r100) > 0 and r100_show
+            array.shift(r100)
+        if array.size(s100) > 0 and s100_show
+            array.shift(s100)
+        if array.size(r75) > 0 and r75_show
+            array.shift(r75)
+        if array.size(s75) > 0 and s75_show
+            array.shift(s75)
+        if array.size(r50) > 0 and r50_show
+            array.shift(r50)
+        if array.size(s50) > 0 and s50_show
+            array.shift(s50)
+        if array.size(r25) > 0 and r25_show
+            array.shift(r25)
+        if array.size(s25) > 0 and s25_show
+            array.shift(s25)
+        if array.size(tp) > 0 and tpbp_show
+            array.shift(tp)
+        if array.size(bp) > 0 and tpbp_show
+            array.shift(bp)
+		if array.size(prevhi) > 0 and prevhi_show
+            array.shift(prevhi)
+		if array.size(prevcl) > 0 and prevcl_show
+            array.shift(prevcl)
+		if array.size(prevlo) > 0 and prevlo_show
+            array.shift(prevlo)
+	is_change := true
+else
+    if is_daily_based and custom_years_divisor == -1
+        pivotX_high := math.max(pivotX_high, sec_high)
+        pivotX_low := math.min(pivotX_low, sec_low)
+    else
+        pivotX_high := math.max(pivotX_high, high)
+        pivotX_low := math.min(pivotX_low, low)
+
+if barstate.islast and array.size(arr_time) > 0 and is_change
+    is_change := false
+    if array.size(arr_time) > 2 and custom_years_divisor > 0
+        last_pivot_time = array.get(arr_time, array.size(arr_time) - 1)
+        prev_pivot_time = array.get(arr_time, array.size(arr_time) - 2)
+        estimate_pivot_time = last_pivot_time - prev_pivot_time
+        array.push(arr_time, last_pivot_time + estimate_pivot_time)
+    else
+        array.push(arr_time, time_close(resolution))
+
+    for i = 0 to array.size(lines) - 1
+        if array.size(lines) > 0
+            line.delete(array.shift(lines))
+        if array.size(lines) > 0
+            label.delete(array.shift(labels))
+
+    for i = 0 to array.size(arr_time) - 2
+        if array.size(p) > 0 and p_show
+            draw_line(i, p, p_color)
+            draw_label(i, array.get(p, i), "P", p_color)
+        if array.size(r100) > 0 and r100_show
+            draw_line(i, r100, r100_color)
+            draw_label(i, array.get(r100, i), "R100", r100_color)
+        if array.size(s100) > 0 and s100_show
+            draw_line(i, s100, s100_color)
+            draw_label(i, array.get(s100, i), "S100", s100_color)
+        if array.size(r75) > 0 and r75_show
+            draw_line(i, r75, r75_color)
+            draw_label(i, array.get(r75, i), "R75", r75_color)
+        if array.size(s75) > 0 and s75_show
+            draw_line(i, s75, s75_color)
+            draw_label(i, array.get(s75, i), "S75", s75_color)
+        if array.size(r50) > 0 and r50_show
+            draw_line(i, r50, r50_color)
+            draw_label(i, array.get(r50, i), "R50", r50_color)
+        if array.size(s50) > 0 and s50_show
+            draw_line(i, s50, s50_color)
+            draw_label(i, array.get(s50, i), "S50", s50_color)
+        if array.size(r25) > 0 and r25_show
+            draw_line(i, r25, r25_color)
+            draw_label(i, array.get(r25, i), "R25", r25_color)
+        if array.size(s25) > 0 and s25_show
+            draw_line(i, s25, s25_color)
+            draw_label(i, array.get(s25, i), "S25", s25_color)
+        if array.size(tp) > 0 and tpbp_show
+            draw_line(i, tp, tpbp_color)
+            draw_label(i, array.get(tp, i), "TP", tpbp_color)
+        if array.size(bp) > 0 and tpbp_show
+            draw_line(i, bp, tpbp_color)
+            draw_label(i, array.get(bp, i), "BP", tpbp_color)
+		if array.size(prevhi) > 0 and prevhi_show
+            draw_line(i, prevhi, prevhi_color)
+            draw_label(i, array.get(prevhi, i), "prevHI", prevhi_color)
+		if array.size(prevcl) > 0 and prevcl_show
+            draw_line(i, prevcl, prevcl_color)
+            draw_label(i, array.get(prevcl, i), "prevCL", prevcl_color)
+		if array.size(prevlo) > 0 and prevlo_show
+            draw_line(i, prevlo, prevlo_color)
+            draw_label(i, array.get(prevlo, i), "prevLO", prevlo_color)
+			
